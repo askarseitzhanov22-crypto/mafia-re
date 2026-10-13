@@ -19,6 +19,10 @@
 #define MAX_PATH 260
 #endif
 
+#ifdef __ANDROID__
+typedef long long __int64;
+#endif
+
 typedef int HANDLE;
 typedef uint32_t DWORD;
 typedef uint32_t UINT;
