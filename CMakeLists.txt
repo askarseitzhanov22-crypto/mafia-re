@@ -4,13 +4,6 @@ project(mafia)
 
 include_directories(common)
 
-# Android is a separate portability build. Keep the original Windows
-# reconstruction targets untouched and build only the portable foundation.
-if (ANDROID)
-    add_subdirectory(rw_data)
-    return()
-endif()
-
 function(vc6_header_dependencies target)
     if (MSVC_VERSION EQUAL 1200)
         file(GLOB_RECURSE headers CONFIGURE_DEPENDS
@@ -19,6 +12,13 @@ function(vc6_header_dependencies target)
         set_source_files_properties(${sources} PROPERTIES OBJECT_DEPENDS "${headers}")
     endif()
 endfunction()
+
+# Android is a separate portability build. Keep the original Windows
+# reconstruction targets untouched and build only the portable foundation.
+if (ANDROID)
+    add_subdirectory(rw_data)
+    return()
+endif()
 
 find_program(MAFIA_PYTHON NAMES python python3 HINTS "${CMAKE_SOURCE_DIR}/.venv/Scripts" REQUIRED)
 function(postlink target)
