@@ -19,6 +19,7 @@ endfunction()
 if (ANDROID)
     add_subdirectory(rw_data)
     add_subdirectory(ijoy)
+    add_subdirectory(android)
     return()
 endif()
 
