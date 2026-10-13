@@ -1,7 +1,8 @@
-#include <android/input.h>
 #include <android/log.h>
 #include <android/native_activity.h>
-#include <cstdint>
+#include <android/native_window.h>
+#include <EGL/egl.h>
+#include <GLES3/gl3.h>
 
 #define MAFIA_LOG_TAG "Mafia-Android"
 
@@ -10,31 +11,67 @@ extern "C" void IJoyAndroid_SetAxis(int axis, float value);
 extern "C" void IJoyAndroid_SetButton(int button, int pressed);
 
 namespace {
-void onStart(ANativeActivity*) {
-    IJoyAndroid_Reset();
-    __android_log_print(ANDROID_LOG_INFO, MAFIA_LOG_TAG, "native activity started");
+struct Renderer {
+    EGLDisplay display = EGL_NO_DISPLAY;
+    EGLSurface surface = EGL_NO_SURFACE;
+    EGLContext context = EGL_NO_CONTEXT;
+    int width = 0;
+    int height = 0;
+} g_renderer;
+
+void shutdownRenderer() {
+    if (g_renderer.display != EGL_NO_DISPLAY) {
+        eglMakeCurrent(g_renderer.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (g_renderer.context != EGL_NO_CONTEXT) eglDestroyContext(g_renderer.display, g_renderer.context);
+        if (g_renderer.surface != EGL_NO_SURFACE) eglDestroySurface(g_renderer.display, g_renderer.surface);
+        eglTerminate(g_renderer.display);
+    }
+    g_renderer = Renderer{};
 }
 
-void onResume(ANativeActivity*) {
-    __android_log_print(ANDROID_LOG_INFO, MAFIA_LOG_TAG, "native activity resumed");
+bool initRenderer(ANativeWindow* window) {
+    shutdownRenderer();
+    if (!window) return false;
+    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (display == EGL_NO_DISPLAY || !eglInitialize(display, nullptr, nullptr)) return false;
+
+    const EGLint configAttrs[] = {EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                                  EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_DEPTH_SIZE, 24, EGL_NONE};
+    EGLConfig config = nullptr;
+    EGLint count = 0;
+    if (!eglChooseConfig(display, configAttrs, &config, 1, &count) || count < 1) { eglTerminate(display); return false; }
+    EGLint format = 0;
+    eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &format);
+    ANativeWindow_setBuffersGeometry(window, 0, 0, format);
+    EGLSurface surface = eglCreateWindowSurface(display, config, window, nullptr);
+    const EGLint contextAttrs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttrs);
+    if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT || !eglMakeCurrent(display, surface, surface, context)) {
+        if (context != EGL_NO_CONTEXT) eglDestroyContext(display, context);
+        if (surface != EGL_NO_SURFACE) eglDestroySurface(display, surface);
+        eglTerminate(display); return false;
+    }
+    g_renderer.display = display; g_renderer.surface = surface; g_renderer.context = context;
+    eglQuerySurface(display, surface, EGL_WIDTH, &g_renderer.width);
+    eglQuerySurface(display, surface, EGL_HEIGHT, &g_renderer.height);
+    glViewport(0, 0, g_renderer.width, g_renderer.height);
+    glClearColor(0.04f, 0.05f, 0.07f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    eglSwapBuffers(display, surface);
+    __android_log_print(ANDROID_LOG_INFO, MAFIA_LOG_TAG, "GLES3 ready: %dx%d", g_renderer.width, g_renderer.height);
+    return true;
 }
 
-void onPause(ANativeActivity*) {
-    __android_log_print(ANDROID_LOG_INFO, MAFIA_LOG_TAG, "native activity paused");
+void onStart(ANativeActivity*) { IJoyAndroid_Reset(); }
+void onResume(ANativeActivity*) {}
+void onPause(ANativeActivity*) {}
+void onStop(ANativeActivity*) {}
+void onDestroy(ANativeActivity*) { shutdownRenderer(); IJoyAndroid_Reset(); }
+void onWindowFocusChanged(ANativeActivity*, int focused) { if (!focused) IJoyAndroid_Reset(); }
+void onNativeWindowCreated(ANativeActivity*, ANativeWindow* window) {
+    if (!initRenderer(window)) __android_log_print(ANDROID_LOG_ERROR, MAFIA_LOG_TAG, "EGL/GLES3 initialization failed");
 }
-
-void onStop(ANativeActivity*) {
-    __android_log_print(ANDROID_LOG_INFO, MAFIA_LOG_TAG, "native activity stopped");
-}
-
-void onDestroy(ANativeActivity*) {
-    IJoyAndroid_Reset();
-    __android_log_print(ANDROID_LOG_INFO, MAFIA_LOG_TAG, "native activity destroyed");
-}
-
-void onWindowFocusChanged(ANativeActivity*, int focused) {
-    if (!focused) IJoyAndroid_Reset();
-}
+void onNativeWindowDestroyed(ANativeActivity*, ANativeWindow*) { shutdownRenderer(); }
 }
 
 extern "C" __attribute__((visibility("default")))
@@ -45,17 +82,11 @@ void ANativeActivity_onCreate(ANativeActivity* activity, void*, size_t) {
     activity->callbacks->onStop = onStop;
     activity->callbacks->onDestroy = onDestroy;
     activity->callbacks->onWindowFocusChanged = onWindowFocusChanged;
+    activity->callbacks->onNativeWindowCreated = onNativeWindowCreated;
+    activity->callbacks->onNativeWindowDestroyed = onNativeWindowDestroyed;
     IJoyAndroid_Reset();
     __android_log_print(ANDROID_LOG_INFO, MAFIA_LOG_TAG, "Mafia Android bootstrap created");
 }
 
-// Input dispatch entry points for the future Java/GameActivity glue.
-extern "C" __attribute__((visibility("default")))
-void MafiaAndroid_OnAxis(int axis, float value) {
-    IJoyAndroid_SetAxis(axis, value);
-}
-
-extern "C" __attribute__((visibility("default")))
-void MafiaAndroid_OnButton(int button, int pressed) {
-    IJoyAndroid_SetButton(button, pressed);
-}
+extern "C" __attribute__((visibility("default"))) void MafiaAndroid_OnAxis(int axis, float value) { IJoyAndroid_SetAxis(axis, value); }
+extern "C" __attribute__((visibility("default"))) void MafiaAndroid_OnButton(int button, int pressed) { IJoyAndroid_SetButton(button, pressed); }
