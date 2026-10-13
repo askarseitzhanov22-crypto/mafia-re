@@ -3,6 +3,9 @@
 #include <android/native_window.h>
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
+#include <atomic>
+#include <chrono>
+#include <thread>
 
 #define MAFIA_LOG_TAG "Mafia-Android"
 
@@ -19,6 +22,9 @@ struct Renderer {
     int height = 0;
 } g_renderer;
 
+std::atomic<bool> g_running{false};
+std::thread g_gameThread;
+
 void shutdownRenderer() {
     if (g_renderer.display != EGL_NO_DISPLAY) {
         eglMakeCurrent(g_renderer.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -29,19 +35,46 @@ void shutdownRenderer() {
     g_renderer = Renderer{};
 }
 
+void renderFrame(float phase) {
+    if (g_renderer.display == EGL_NO_DISPLAY || g_renderer.surface == EGL_NO_SURFACE) return;
+    const float pulse = 0.03f + 0.02f * phase;
+    glViewport(0, 0, g_renderer.width, g_renderer.height);
+    glClearColor(pulse, 0.05f, 0.07f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    eglSwapBuffers(g_renderer.display, g_renderer.surface);
+}
+
+void gameLoop() {
+    using clock = std::chrono::steady_clock;
+    auto previous = clock::now();
+    float phase = 0.0f;
+    while (g_running.load(std::memory_order_acquire)) {
+        const auto now = clock::now();
+        const float dt = std::chrono::duration<float>(now - previous).count();
+        previous = now;
+        phase += dt;
+        if (phase > 1.0f) phase -= 1.0f;
+        renderFrame(phase);
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+}
+
+void stopGameLoop() {
+    g_running.store(false, std::memory_order_release);
+    if (g_gameThread.joinable()) g_gameThread.join();
+}
+
 bool initRenderer(ANativeWindow* window) {
+    stopGameLoop();
     shutdownRenderer();
     if (!window) return false;
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY || !eglInitialize(display, nullptr, nullptr)) return false;
-
     const EGLint configAttrs[] = {EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
                                   EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_DEPTH_SIZE, 24, EGL_NONE};
-    EGLConfig config = nullptr;
-    EGLint count = 0;
+    EGLConfig config = nullptr; EGLint count = 0;
     if (!eglChooseConfig(display, configAttrs, &config, 1, &count) || count < 1) { eglTerminate(display); return false; }
-    EGLint format = 0;
-    eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &format);
+    EGLint format = 0; eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &format);
     ANativeWindow_setBuffersGeometry(window, 0, 0, format);
     EGLSurface surface = eglCreateWindowSurface(display, config, window, nullptr);
     const EGLint contextAttrs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
@@ -54,34 +87,28 @@ bool initRenderer(ANativeWindow* window) {
     g_renderer.display = display; g_renderer.surface = surface; g_renderer.context = context;
     eglQuerySurface(display, surface, EGL_WIDTH, &g_renderer.width);
     eglQuerySurface(display, surface, EGL_HEIGHT, &g_renderer.height);
-    glViewport(0, 0, g_renderer.width, g_renderer.height);
-    glClearColor(0.04f, 0.05f, 0.07f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    eglSwapBuffers(display, surface);
     __android_log_print(ANDROID_LOG_INFO, MAFIA_LOG_TAG, "GLES3 ready: %dx%d", g_renderer.width, g_renderer.height);
+    g_running.store(true, std::memory_order_release);
+    g_gameThread = std::thread(gameLoop);
     return true;
 }
 
 void onStart(ANativeActivity*) { IJoyAndroid_Reset(); }
 void onResume(ANativeActivity*) {}
-void onPause(ANativeActivity*) {}
+void onPause(ANativeActivity*) { IJoyAndroid_Reset(); }
 void onStop(ANativeActivity*) {}
-void onDestroy(ANativeActivity*) { shutdownRenderer(); IJoyAndroid_Reset(); }
+void onDestroy(ANativeActivity*) { stopGameLoop(); shutdownRenderer(); IJoyAndroid_Reset(); }
 void onWindowFocusChanged(ANativeActivity*, int focused) { if (!focused) IJoyAndroid_Reset(); }
 void onNativeWindowCreated(ANativeActivity*, ANativeWindow* window) {
     if (!initRenderer(window)) __android_log_print(ANDROID_LOG_ERROR, MAFIA_LOG_TAG, "EGL/GLES3 initialization failed");
 }
-void onNativeWindowDestroyed(ANativeActivity*, ANativeWindow*) { shutdownRenderer(); }
+void onNativeWindowDestroyed(ANativeActivity*, ANativeWindow*) { stopGameLoop(); shutdownRenderer(); }
 }
 
-extern "C" __attribute__((visibility("default")))
-void ANativeActivity_onCreate(ANativeActivity* activity, void*, size_t) {
-    activity->callbacks->onStart = onStart;
-    activity->callbacks->onResume = onResume;
-    activity->callbacks->onPause = onPause;
-    activity->callbacks->onStop = onStop;
-    activity->callbacks->onDestroy = onDestroy;
-    activity->callbacks->onWindowFocusChanged = onWindowFocusChanged;
+extern "C" __attribute__((visibility("default"))) void ANativeActivity_onCreate(ANativeActivity* activity, void*, size_t) {
+    activity->callbacks->onStart = onStart; activity->callbacks->onResume = onResume;
+    activity->callbacks->onPause = onPause; activity->callbacks->onStop = onStop;
+    activity->callbacks->onDestroy = onDestroy; activity->callbacks->onWindowFocusChanged = onWindowFocusChanged;
     activity->callbacks->onNativeWindowCreated = onNativeWindowCreated;
     activity->callbacks->onNativeWindowDestroyed = onNativeWindowDestroyed;
     IJoyAndroid_Reset();
