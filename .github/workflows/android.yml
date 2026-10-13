@@ -42,3 +42,5 @@ jobs:
         with:
           name: mafia-rw-data-arm64-v8a
           path: build/rw_data/librw_data.so
+
+# Trigger a fresh validation run after the CMake helper-order fix.
