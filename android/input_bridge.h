@@ -4,3 +4,4 @@
 
 // Translate Android key/gamepad/motion events into the portable IJoy state.
 extern "C" int32_t MafiaAndroid_HandleInputEvent(AInputEvent* event);
+extern "C" void MafiaAndroid_SetInputSurfaceSize(int width, int height);
