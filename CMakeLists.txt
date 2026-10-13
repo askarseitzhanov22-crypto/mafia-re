@@ -14,9 +14,11 @@ function(vc6_header_dependencies target)
 endfunction()
 
 # Android is a separate portability build. Keep the original Windows
-# reconstruction targets untouched and build only the portable foundation.
+# reconstruction targets untouched while bringing portable components up one
+# at a time. rw_data is native; ijoy currently uses an Android input shim.
 if (ANDROID)
     add_subdirectory(rw_data)
+    add_subdirectory(ijoy)
     return()
 endif()
 
