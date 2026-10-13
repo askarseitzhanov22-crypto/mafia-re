@@ -30,15 +30,18 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build Android native libraries
-        run: cmake --build build --target rw_data ijoy --parallel 2
+        run: cmake --build build --target rw_data ijoy mafia_android --parallel 2
 
       - name: Verify ARM64 libraries
         run: |
           file build/rw_data/librw_data.so
           file build/ijoy/libIJoy.so
+          file build/android/libmafia_android.so
           readelf -h build/rw_data/librw_data.so | grep -E 'Class|Machine'
           readelf -h build/ijoy/libIJoy.so | grep -E 'Class|Machine'
+          readelf -h build/android/libmafia_android.so | grep -E 'Class|Machine'
           readelf -Ws build/ijoy/libIJoy.so | grep IJoyAndroid_
+          readelf -Ws build/android/libmafia_android.so | grep -E 'ANativeActivity_onCreate|MafiaAndroid_On'
 
       - name: Upload ARM64 libraries
         uses: actions/upload-artifact@v4
@@ -47,3 +50,4 @@ jobs:
           path: |
             build/rw_data/librw_data.so
             build/ijoy/libIJoy.so
+            build/android/libmafia_android.so
