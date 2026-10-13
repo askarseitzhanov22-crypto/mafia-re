@@ -1,0 +1,27 @@
+name: Мой Нативный Порт Мафии
+on: [push] # Скрипт срабатывает каждый раз, когда ты меняешь код с телефона
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Копируем код порта
+      uses: actions/checkout@v4
+
+    - name: Включаем компиляторы Android NDK
+      uses: android-actions/setup-android@v3
+
+    - name: Ставим Android NDK 26
+      run: sdkmanager --install "ndk;26.1.10909125"
+
+    - name: Собираем C++ код игры под процессор ARM64 телефона
+      run: |
+        mkdir build && cd build
+        cmake .. -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/26.1.10909125/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29
+        make -j4
+
+    - name: Выгружаем готовый нативный APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: Мой_Личный_Порт_Мафии
+        path: build/*.apk
