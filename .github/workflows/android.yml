@@ -29,18 +29,21 @@ jobs:
             -DANDROID_STL=c++_static \
             -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build rw_data
-        run: cmake --build build --target rw_data --parallel 2
+      - name: Build Android native libraries
+        run: cmake --build build --target rw_data ijoy --parallel 2
 
-      - name: Verify ARM64 library
+      - name: Verify ARM64 libraries
         run: |
           file build/rw_data/librw_data.so
+          file build/ijoy/libIJoy.so
           readelf -h build/rw_data/librw_data.so | grep -E 'Class|Machine'
+          readelf -h build/ijoy/libIJoy.so | grep -E 'Class|Machine'
+          readelf -Ws build/ijoy/libIJoy.so | grep IJoyAndroid_
 
-      - name: Upload ARM64 library
+      - name: Upload ARM64 libraries
         uses: actions/upload-artifact@v4
         with:
-          name: mafia-rw-data-arm64-v8a
-          path: build/rw_data/librw_data.so
-
-# Trigger a fresh validation run after the CMake helper-order fix.
+          name: mafia-native-arm64-v8a
+          path: |
+            build/rw_data/librw_data.so
+            build/ijoy/libIJoy.so
