@@ -5,4 +5,4 @@ target_include_directories(mafia_android PRIVATE
     ${CMAKE_SOURCE_DIR}/ijoy)
 
 target_compile_features(mafia_android PRIVATE cxx_std_11)
-target_link_libraries(mafia_android PRIVATE android log ijoy rw_data)
+target_link_libraries(mafia_android PRIVATE android log ijoy rw_data EGL GLESv3)
