@@ -1,6 +1,7 @@
 add_library(mafia_android SHARED
     native_main.cpp
-    engine_bridge.cpp)
+    engine_bridge.cpp
+    input_bridge.cpp)
 
 target_include_directories(mafia_android PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
